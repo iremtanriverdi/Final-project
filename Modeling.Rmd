@@ -1,0 +1,240 @@
+---
+title: "Modeling"
+author: "Irem TANRIVERDI"
+date: "5/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(kableExtra)
+bank<- read.csv(file = "bank-full.csv", head = T, sep=";")
+```
+
+
+```{r}
+bank$job<-as.factor(bank$job)
+bank$marital<-as.factor(bank$marital)
+bank$education<-as.factor(bank$education)
+bank$default<-as.factor(bank$default)
+bank$housing<-as.factor(bank$housing)
+
+bank$loan<-as.factor(bank$loan)
+bank$contact<-as.factor(bank$contact)
+bank$poutcome<-as.factor(bank$poutcome)
+#bank$ y<-as.factor(bank$ y)
+```
+
+```{r}
+for(i in 1: nrow(bank)){
+  if(bank$y[i]=="yes"){
+    bank$y[i]=1
+  }
+  else{
+   bank$y[i]=0 
+  }
+}
+
+bank$y<-as.factor(bank$y)
+```
+```{r}
+library(ROSE)
+data_balanced_both <- ovun.sample(y ~ ., data = bank, method = "both", p=0.5, N=45211, seed = 1)$data
+table(data_balanced_both$y)
+prop.table(table(data_balanced_both$y))
+```
+
+
+
+```{r}
+inst_pack_func <- function(list.of.packages){
+  new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+  if(length(new.packages)) install.packages(new.packages)
+  lapply(list.of.packages,function(x){library(x,character.only=TRUE)})
+}
+
+list.of.packages <- c("ggplot2","dplyr","stats4","splines","VGAM","rsample","rpart","rpart.plot","ipred","caret","MVN")
+inst_pack_func(list.of.packages)
+```
+
+
+```{r}
+set.seed(123)
+split <- initial_split(data_balanced_both, prop = .8)
+train1 <- training(split)
+test  <- testing(split)
+nrow(train1)
+nrow(test)
+```
+
+
+```{r}
+prop.table(table(train1$y))
+```
+
+#### LOGISTIC REGRESSION
+
+```{r}
+regression<- glm(y~., data = train1, family  = binomial(link = "logit"))
+summary(regression)
+```
+
+```{r}
+test$y<-as.factor(test$y)
+```
+
+
+```{r}
+#Construct the Confusion Matrix
+prediction <- predict(regression, newdata = test, type = 'response')
+pred <- factor(ifelse(prediction <= 0.5,0,1))
+result <- caret::confusionMatrix(pred,test$y)
+result
+```
+
+```{r}
+metrics<-as.data.frame(result$byClass)
+colnames(metrics)<-"metrics"
+library(dplyr)
+library(kableExtra)
+kable(round(metrics,4), caption = "F1-score, Precision and Recall ") %>%
+  kable_styling(font_size = 16)
+```
+
+#### DECISION TREE
+
+```{r}
+library(rpart)
+library(rpart.plot)
+ensemble <- rpart(y~., data = train1, method = 'class')
+rpart.plot(ensemble)
+```
+
+
+```{r}
+#Construct the Confusion Matrix
+prediction2 <- predict(ensemble, newdata = test, type = 'class')
+
+result2 <- caret::confusionMatrix(prediction2,test$y)
+result2
+```
+
+
+```{r}
+metrics<-as.data.frame(result2$byClass)
+colnames(metrics)<-"metrics"
+library(dplyr)
+library(kableExtra)
+kable(round(metrics,4), caption = "F1-score, Precision and Recall ") %>%
+  kable_styling(font_size = 16)
+```
+
+
+
+```{r}
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+
+fancyRpartPlot(ensemble, uniform=TRUE, main="y Tree")
+predicted <- predict(ensemble, type="class")
+table(train1$y,predicted)
+
+```
+#### XGBOOST
+
+```{r}
+library(xgboost)
+```
+
+
+```{r}
+library(kableExtra)
+bank<- read.csv(file = "bank-full.csv", head = T, sep=";")
+```
+
+
+```{r}
+bank$job<-as.factor(bank$job)
+bank$marital<-as.factor(bank$marital)
+bank$education<-as.factor(bank$education)
+bank$default<-as.factor(bank$default)
+bank$housing<-as.factor(bank$housing)
+
+bank$loan<-as.factor(bank$loan)
+bank$contact<-as.factor(bank$contact)
+bank$poutcome<-as.factor(bank$poutcome)
+#bank$ y<-as.factor(bank$ y)
+```
+
+```{r}
+for(i in 1: nrow(bank)){
+  if(bank$y[i]=="yes"){
+    bank$y[i]=1
+  }
+  else{
+   bank$y[i]=0 
+  }
+}
+
+bank$y<-as.factor(bank$y)
+```
+
+```{r}
+library(xgboost)
+ library(caret)
+
+indexes = createDataPartition(bank$y, p=.8, list=F)
+train = bank[indexes, ]
+test = bank[-indexes, ]
+
+train_x = data.matrix(train[,-17])
+train_y = train[,17]
+ 
+test_x = data.matrix(test[,-17])
+test_y = test[,17]
+
+
+
+xgb_train = xgb.DMatrix(data=train_x, label=train_y)
+xgb_test = xgb.DMatrix(data=test_x, label=test_y)
+
+xgbc = xgboost(data=xgb_train, max.depth=3, nrounds=50)
+```
+
+```{r}
+pred = predict(xgbc, xgb_test)
+pred[(pred>3)] = 3
+pred_y = as.factor((levels(test_y))[round(pred)])
+cm = confusionMatrix(test_y, pred_y)
+print(cm)
+```
+
+```{r}
+metrics<-as.data.frame(cm$byClass)
+colnames(metrics)<-"metrics"
+library(dplyr)
+library(kableExtra)
+kable(round(metrics,4), caption = "F1-score, Precision and Recall ") %>%
+  kable_styling(font_size = 16)
+```
+
+
+```{r}
+f1<-c(0.825,0.876,0.975)
+modelss<-c("Logistic Regression", "Decision tree","XGBOOST")
+v1=data.frame(f1,modelss)
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(v1, aes(x=modelss, y=f1)) + 
+  geom_bar(stat = "identity",fill="gold")+coord_flip()+ggtitle("Precision")+geom_text(aes(label = f1), vjust = 0, hjust = 1.2) +labs(x="models",y="Precision")
+```
+
